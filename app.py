@@ -10,7 +10,6 @@ import json
 import matplotlib.pyplot as plt
 import numpy as np
 import time
-import hashlib
 from modules.suggestions.get_brewing_suggestions import get_brewing_suggestions
 from modules.extraction_chart.add_extraction_chart import add_extraction_chart
 import csv
@@ -18,23 +17,6 @@ import csv
 
 # CSV file to store sheet IDs
 SHEET_REGISTRY_FILE = "coffee_tracker_sheets.csv"
-
-
-def hash_password(password):
-    """Hash a password using SHA256 (Modify for better security in production)."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def check_credentials(email, password):
-    """Validate email and password from Streamlit secrets."""
-    users = st.secrets.get("users", {})
-    stored_password = users.get(f"{email}_password", "")
-
-    if not stored_password:
-        return False  # Email not found
-
-    return stored_password == hash_password(password)  # Check hashed password
-
 
 # Function to load existing sheet registrations
 def load_sheet_registry():
@@ -74,6 +56,7 @@ def save_sheet_registry(email, sheet_id):
     registry_df.to_csv(SHEET_REGISTRY_FILE, index=False)
 
 
+
 # Define the scope and credentials needed for Google Sheets API
 def setup_google_sheets():
     """Setup and authorize Google Sheets access using Streamlit secrets."""
@@ -92,9 +75,7 @@ def setup_google_sheets():
     try:
         # Load credentials from Streamlit secrets
         credentials_dict = st.secrets["google_sheets_credentials"]
-        credentials = Credentials.from_service_account_info(
-            credentials_dict, scopes=scope
-        )
+        credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
         gc = gspread.authorize(credentials)
 
         # Store credentials in session state to reduce redundant authentication calls
@@ -117,34 +98,18 @@ def create_coffee_tracker_sheet(gc, email):
         brewers_ws = sheet.add_worksheet(title="Brewers", rows=1000, cols=10)
 
         # Initialize Beans Inventory
-        beans_data = pd.DataFrame(
-            columns=[
-                "id",
-                "name",
-                "varietal",
-                "process",
-                "origin",
-                "roast_date",
-                "grams_remaining",
-                "notes",
-            ]
-        )
+        beans_data = pd.DataFrame(columns=[
+            "id", "name", "varietal", "process", "origin", 
+            "roast_date", "grams_remaining", "notes"
+        ])
         set_with_dataframe(beans_ws, beans_data)
 
         # Initialize Brew Log
-        brew_log_data = pd.DataFrame(
-            columns=[
-                "date",
-                "coffee_id",
-                "coffee_name",
-                "dose",
-                "total_water",
-                "grind_size",
-                "tds_percent",
-                "extraction_yield",
-                "notes",
-            ]
-        )
+        brew_log_data = pd.DataFrame(columns=[
+            "date", "coffee_id", "coffee_name", "dose", 
+            "total_water", "grind_size", "tds_percent", 
+            "extraction_yield", "notes"
+        ])
         set_with_dataframe(brew_log_ws, brew_log_data)
 
         # Initialize Brewers
@@ -167,9 +132,7 @@ def load_data(gc, worksheet_name):
     """Load data from a Google Sheet worksheet with caching."""
     cache_key = f"{worksheet_name}_data"
 
-    if cache_key in st.session_state and not st.session_state.get(
-        "force_refresh", False
-    ):
+    if cache_key in st.session_state and not st.session_state.get("force_refresh", False):
         return st.session_state[cache_key]
 
     try:
@@ -188,7 +151,6 @@ def load_data(gc, worksheet_name):
     except Exception as e:
         st.error(f"Error loading {worksheet_name}: {e}")
         return pd.DataFrame()
-
 
 # Add this function to update the extraction calculator page
 def add_brewing_suggestions_to_extraction_calculator(gc):
@@ -337,7 +299,7 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded",
     )
-
+    # Setup Google Sheets connection
     gc = setup_google_sheets()
     if not gc:
         st.error(
@@ -345,59 +307,85 @@ def main():
         )
         return
 
+    # Initialize stopwatch
     initialize_stopwatch()
 
+    # Check if we've already set up the sheet
     if "sheet_id" not in st.session_state:
         st.title("Coffee Tracker Setup")
 
-        st.markdown("### Load Existing Coffee Tracker")
-        email = st.text_input("Enter your email")
-        password = st.text_input("Enter your password", type="password")
+        # Load existing sheet registry
+        registry_df = load_sheet_registry()
 
-        if email and password and st.button("Load Existing Sheet"):
-            if check_credentials(email, password):
-                registry_df = load_sheet_registry()
-                sheet_info = registry_df[registry_df["email"] == email].iloc[0]
-                sheet_id = sheet_info["sheet_id"]
+        # If we have saved sheets, show them for selection
+        if not registry_df.empty:
+            st.markdown("### Your Coffee Tracker Sheets")
+            st.dataframe(registry_df[["email", "created_date"]])
 
+            selected_email = st.selectbox(
+                "Select your email to load your sheet",
+                [""] + registry_df["email"].tolist(),
+            )
+
+            if selected_email and st.button("Load Existing Sheet"):
+                sheet_id = registry_df[registry_df["email"] == selected_email][
+                    "sheet_id"
+                ].iloc[0]
                 try:
+                    # Test if we can open the sheet
                     gc.open_by_key(sheet_id)
                     st.session_state["sheet_id"] = sheet_id
-                    st.session_state["user_email"] = email
-                    st.success(f"Loaded sheet for {email}")
+                    st.session_state["user_email"] = selected_email
+                    st.success(f"Loaded sheet for {selected_email}")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Could not open sheet: {e}")
-            else:
-                st.error("Invalid email or password. Please try again.")
 
+        # Option to create a new sheet
         st.markdown("---")
         st.markdown("### Create New Coffee Tracker")
-        new_email = st.text_input("Enter your email to share the Coffee Tracker sheet")
-        new_password = st.text_input("Set a password", type="password")
-
-        if new_email and new_password and st.button("Create Coffee Tracker"):
-            sheet_id = create_coffee_tracker_sheet(gc, new_email)
+        email = st.text_input("Enter your email to share the Coffee Tracker sheet")
+        if email and st.button("Create Coffee Tracker"):
+            sheet_id = create_coffee_tracker_sheet(gc, email)
             if sheet_id:
                 st.session_state["sheet_id"] = sheet_id
-                st.session_state["user_email"] = new_email
-
-                # Save hashed password to Streamlit secrets
-                st.secrets["users"][f"{new_email}_password"] = hash_password(
-                    new_password
-                )
-                save_sheet_registry(new_email, sheet_id)
-
-                st.success(f"Coffee Tracker sheet created and shared with {new_email}")
+                st.session_state["user_email"] = email
+                st.success(f"Coffee Tracker sheet created and shared with {email}")
                 st.rerun()
+
+        # Option to use existing sheet ID directly
+        st.markdown("---")
+        st.markdown("### Or use an existing sheet")
+        col1, col2 = st.columns(2)
+        with col1:
+            sheet_id = st.text_input("Enter your existing Google Sheet ID")
+        with col2:
+            sheet_email = st.text_input("Your email (for future reference)")
+
+        if sheet_id and sheet_email and st.button("Connect to Existing Sheet"):
+            try:
+                # Test if we can open the sheet
+                gc.open_by_key(sheet_id)
+                st.session_state["sheet_id"] = sheet_id
+                st.session_state["user_email"] = sheet_email
+
+                # Save to registry for future use
+                save_sheet_registry(sheet_email, sheet_id)
+
+                st.success("Connected to existing Google Sheet")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not open sheet: {e}")
 
         return
 
+    # Sidebar navigation (simplified)
     st.sidebar.title("Navigation")
     page = st.sidebar.radio(
         "Go to", ["Extraction Calculator", "Beans Inventory", "Brew Log"]
     )
 
+    # Add "sheet info" display in sidebar
     if "sheet_id" in st.session_state and "user_email" in st.session_state:
         st.sidebar.markdown("---")
         st.sidebar.markdown("### Your Sheet Info")
@@ -409,6 +397,7 @@ def main():
         )
 
         if st.sidebar.button("Disconnect Sheet"):
+            # Clear session state
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
