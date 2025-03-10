@@ -1,0 +1,23 @@
+# Sensitive data files
+coffee_tracker_sheets.csv
+.env
+creds.json
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Environment and local development
+venv/
+env/
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/secrets.toml
