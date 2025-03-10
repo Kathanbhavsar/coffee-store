@@ -2,6 +2,7 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 
+plt.style.use('seaborn-whitegrid')
 
 def add_extraction_chart(tds_percent, extraction_yield):
     """
@@ -14,8 +15,6 @@ def add_extraction_chart(tds_percent, extraction_yield):
     """
     st.markdown("### Coffee Extraction Map")
 
-    # Use a cleaner style
-    plt.style.use("seaborn-whitegrid")
 
     # Create figure with high-resolution and better aspect ratio
     fig = plt.figure(figsize=(12, 8), dpi=100)
