@@ -2,7 +2,6 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 
-plt.style.use('seaborn-whitegrid')
 
 def add_extraction_chart(tds_percent, extraction_yield):
     """
