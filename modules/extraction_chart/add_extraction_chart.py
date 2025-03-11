@@ -14,7 +14,6 @@ def add_extraction_chart(tds_percent, extraction_yield):
     """
     st.markdown("### Coffee Extraction Map")
 
-
     # Create figure with high-resolution and better aspect ratio
     fig = plt.figure(figsize=(12, 8), dpi=100)
     ax = fig.add_subplot(111)

@@ -56,7 +56,6 @@ def save_sheet_registry(email, sheet_id):
     registry_df.to_csv(SHEET_REGISTRY_FILE, index=False)
 
 
-
 # Define the scope and credentials needed for Google Sheets API
 def setup_google_sheets():
     """Setup and authorize Google Sheets access using Streamlit secrets."""
@@ -75,7 +74,9 @@ def setup_google_sheets():
     try:
         # Load credentials from Streamlit secrets
         credentials_dict = st.secrets["google_sheets_credentials"]
-        credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+        credentials = Credentials.from_service_account_info(
+            credentials_dict, scopes=scope
+        )
         gc = gspread.authorize(credentials)
 
         # Store credentials in session state to reduce redundant authentication calls
@@ -87,7 +88,7 @@ def setup_google_sheets():
 
 
 def create_coffee_tracker_sheet(gc, email):
-    """Create and initialize the Coffee Tracker Google Sheet."""
+    """Create and initialize the Coffee Tracker Google Sheet with Water Recipes."""
     try:
         sheet = gc.create("Coffee Tracker")
         sheet.share(email, perm_type="user", role="writer")
@@ -96,25 +97,59 @@ def create_coffee_tracker_sheet(gc, email):
         beans_ws = sheet.add_worksheet(title="Beans Inventory", rows=1000, cols=20)
         brew_log_ws = sheet.add_worksheet(title="Brew Log", rows=1000, cols=20)
         brewers_ws = sheet.add_worksheet(title="Brewers", rows=1000, cols=10)
+        water_recipes_ws = sheet.add_worksheet(
+            title="Water Recipes", rows=1000, cols=10
+        )  # New Worksheet
 
         # Initialize Beans Inventory
-        beans_data = pd.DataFrame(columns=[
-            "id", "name", "varietal", "process", "origin", 
-            "roast_date", "grams_remaining", "notes"
-        ])
+        beans_data = pd.DataFrame(
+            columns=[
+                "id",
+                "name",
+                "varietal",
+                "process",
+                "origin",
+                "roast_date",
+                "grams_remaining",
+                "notes",
+            ]
+        )
         set_with_dataframe(beans_ws, beans_data)
 
         # Initialize Brew Log
-        brew_log_data = pd.DataFrame(columns=[
-            "date", "coffee_id", "coffee_name", "dose", 
-            "total_water", "grind_size", "tds_percent", 
-            "extraction_yield", "notes"
-        ])
+        brew_log_data = pd.DataFrame(
+            columns=[
+                "date",
+                "coffee_id",
+                "coffee_name",
+                "dose",
+                "total_water",
+                "grind_size",
+                "tds_percent",
+                "extraction_yield",
+                "notes",
+            ]
+        )
         set_with_dataframe(brew_log_ws, brew_log_data)
 
         # Initialize Brewers
         brewers_data = pd.DataFrame(columns=["id", "name", "type", "capacity", "notes"])
         set_with_dataframe(brewers_ws, brewers_data)
+
+        # Initialize Water Recipes
+        water_recipes_data = pd.DataFrame(
+            columns=[
+                "id",
+                "name",
+                "magnesium_drops",
+                "calcium_drops",
+                "sodium_drops",
+                "potassium_drops",
+                "total_volume_ml",
+                "notes",
+            ]
+        )
+        set_with_dataframe(water_recipes_ws, water_recipes_data)
 
         # Remove default sheet
         sheet.del_worksheet(sheet.get_worksheet(0))
@@ -132,7 +167,9 @@ def load_data(gc, worksheet_name):
     """Load data from a Google Sheet worksheet with caching."""
     cache_key = f"{worksheet_name}_data"
 
-    if cache_key in st.session_state and not st.session_state.get("force_refresh", False):
+    if cache_key in st.session_state and not st.session_state.get(
+        "force_refresh", False
+    ):
         return st.session_state[cache_key]
 
     try:
@@ -151,6 +188,7 @@ def load_data(gc, worksheet_name):
     except Exception as e:
         st.error(f"Error loading {worksheet_name}: {e}")
         return pd.DataFrame()
+
 
 # Add this function to update the extraction calculator page
 def add_brewing_suggestions_to_extraction_calculator(gc):
@@ -421,11 +459,11 @@ def extraction_calculator_page(gc):
         + st.session_state["sheet_id"]
         + "/edit)"
     )
-    # Load coffee beans and brewers (with caching)
+
     beans_df = load_data(gc, "Beans Inventory")
     brewers_df = load_data(gc, "Brewers")
+    water_recipes_df = load_data(gc, "Water Recipes")
 
-    # Select coffee from inventory
     coffee_options = []
     if not beans_df.empty and "name" in beans_df.columns and "id" in beans_df.columns:
         for _, row in beans_df.iterrows():
@@ -437,12 +475,7 @@ def extraction_calculator_page(gc):
     selected_coffee_id = None
 
     if coffee_options:
-        selected_coffee_option = st.selectbox(
-            "Select Coffee",
-            [""] + coffee_options,
-            key="selected_coffee_option",
-            on_change=lambda: st.session_state.pop("suggested_coffee_dose", None),
-        )
+        selected_coffee_option = st.selectbox("Select Coffee", [""] + coffee_options)
         if selected_coffee_option:
             coffee_name = selected_coffee_option.split(" (")[0]
             selected_coffee = coffee_name
@@ -450,252 +483,121 @@ def extraction_calculator_page(gc):
                 0
             ]
 
-            # Check if coffee is low on supply
-            remaining = float(
-                beans_df[beans_df["name"] == coffee_name]["grams_remaining"].values[0]
-            )
-            if remaining < 50:
-                st.warning(
-                    f"⚠️ Low coffee supply: Only {remaining:.1f}g remaining of {coffee_name}"
-                )
-
-            # Display brewing suggestions after coffee selection
-            add_brewing_suggestions_to_extraction_calculator(gc)
-    else:
-        st.info(
-            "No coffee beans in inventory. Please add some in the Beans Inventory page."
+    water_recipe = None
+    if not water_recipes_df.empty and "name" in water_recipes_df.columns:
+        water_recipe_options = [""] + water_recipes_df["name"].tolist()
+        selected_water_recipe = st.selectbox(
+            "Select Water Recipe", water_recipe_options
         )
+        if selected_water_recipe:
+            water_recipe = selected_water_recipe
 
-    # Create two columns for input fields
     col1, col2 = st.columns(2)
-
     with col1:
-        # Use suggested values if available
-        default_coffee_dose = st.session_state.get("suggested_coffee_dose", 0.0)
         coffee_dose = st.number_input(
-            "Coffee Dose (g)",
-            min_value=0.0,
-            step=0.1,
-            format="%.1f",
-            value=default_coffee_dose,
-            help="Weight of your ground coffee",
+            "Coffee Dose (g)", min_value=0.0, step=0.1, format="%.1f"
         )
-
         dry_weight = st.number_input(
-            "Dry Weight (g)",
-            min_value=0.0,
-            step=0.1,
-            format="%.1f",
-            help="Weight of dripper + wet filter + dry coffee",
+            "Dry Weight (g)", min_value=0.0, step=0.1, format="%.1f"
         )
-
-        # Use suggested values if available
-        default_water = st.session_state.get("suggested_water_amount", 0.0)
         total_water = st.number_input(
-            "Total Water (g)",
-            min_value=0.0,
-            step=0.1,
-            format="%.1f",
-            value=default_water,
-            help="Total amount of water used for brewing",
+            "Total Water (g)", min_value=0.0, step=0.1, format="%.1f"
         )
-
-        # Use timer value or manual entry
-        brew_time = ""
-        brew_time = st.text_input(
-            "Brew Time(mm : ss)", help="Total brewing time in minutes : seconds format"
-        )
+        brew_time = st.text_input("Brew Time(mm : ss)")
 
     with col2:
         beverage_weight = st.number_input(
-            "Beverage Weight (g)",
-            min_value=0.0,
-            step=0.1,
-            format="%.1f",
-            help="Weight of your final brewed coffee",
+            "Beverage Weight (g)", min_value=0.0, step=0.1, format="%.1f"
         )
-
         wet_weight = st.number_input(
-            "Wet Weight (g)",
-            min_value=0.0,
-            step=0.1,
-            format="%.1f",
-            help="Weight of dripper + wet filter + used coffee after brewing",
+            "Wet Weight (g)", min_value=0.0, step=0.1, format="%.1f"
         )
+        grind_size = st.text_input("Grind Size")
+        notes = st.text_area("Tasting Notes")
 
-        # Use suggested values if available
-        default_grind = st.session_state.get("suggested_grind_size", "")
-        grind_size = st.text_input(
-            "Grind Size", value=default_grind, help="Your grinder setting"
-        )
-
-        notes = st.text_area(
-            "Tasting Notes", help="Record your impressions of this brew"
-        )
-
-    # Information box
-    with st.expander("How to use this calculator"):
-        st.markdown(
-            """
-        1. Rinse your filter and place it in the dripper
-        2. Add your ground coffee to the wet filter
-        3. Weigh and record the dripper + wet filter + dry coffee (Dry Weight)
-        4. Brew your coffee, measuring the exact amount of water used (Total Water)
-        5. Weigh your brewed coffee (Beverage Weight)
-        6. Weigh the dripper + wet filter + used coffee after brewing (Wet Weight)
-        7. Enter your coffee dose amount separately
-        """
-        )
-
-    # Calculate results only if all required inputs are provided
-    # Calculate results only if all required inputs are provided
     if coffee_dose and dry_weight and total_water and beverage_weight and wet_weight:
-        error = None
+        retention = wet_weight - dry_weight
+        coffee_water = total_water - retention
+        solids = abs(coffee_water - beverage_weight)
+        tds_percent = (solids / coffee_water) * 100
+        extraction_yield = (tds_percent * beverage_weight) / (
+            coffee_dose - (0.035 * coffee_dose)
+        )
+        brew_ratio = total_water / coffee_dose
 
-        # Validate inputs
-        if wet_weight < dry_weight:
-            error = "Wet weight must be greater than dry weight"
-        elif beverage_weight > total_water:
-            error = "Beverage weight cannot exceed total water used"
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Water Retention", f"{retention:.1f} g")
+            st.metric("Brew Ratio", f"1:{brew_ratio:.1f}")
+        with col2:
+            st.metric("Dissolved Solids", f"{solids:.1f} g")
+            st.metric("TDS", f"{tds_percent:.2f}%")
 
-        if error:
-            st.error(error)
+        if extraction_yield < 17:
+            extraction_status = "Under-extracted"
+            box_color = "rgba(66, 133, 244, 0.2)"
+            text_color = "rgb(66, 133, 244)"
+        elif extraction_yield > 22:
+            extraction_status = "Over-extracted"
+            box_color = "rgba(234, 67, 53, 0.2)"
+            text_color = "rgb(234, 67, 53)"
         else:
-            # Calculate all values using the provided formulas
-            retention = wet_weight - dry_weight
-            coffee_water = total_water - retention
-            solids = abs(coffee_water - beverage_weight)
-            tds_percent = (solids / coffee_water) * 100
-            extraction_yield = (tds_percent * beverage_weight) / (
-                coffee_dose - (0.035 * coffee_dose)
-            )
+            extraction_status = "Ideal range"
+            box_color = "rgba(52, 168, 83, 0.2)"
+            text_color = "rgb(52, 168, 83)"
 
-            # Calculate brew ratio
-            brew_ratio = total_water / coffee_dose
-
-            # Display results
-            st.markdown("### Results")
-
-            # Create metrics in rows instead of columns to avoid space issues
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Water Retention", f"{retention:.1f} g")
-                st.metric("Brew Ratio", f"1:{brew_ratio:.1f}")
-
-            with col2:
-                st.metric("Dissolved Solids", f"{solids:.1f} g")
-                st.metric("TDS", f"{tds_percent:.2f}%")
-
-            # Handle extraction yield separately without using delta_color
-            st.markdown("#### Extraction Yield")
-
-            # Create a colored box for the extraction yield value
-            if extraction_yield < 17:
-                extraction_status = "Under-extracted"
-                box_color = "rgba(66, 133, 244, 0.2)"  # Light blue
-                text_color = "rgb(66, 133, 244)"
-            elif extraction_yield > 22:
-                extraction_status = "Over-extracted"
-                box_color = "rgba(234, 67, 53, 0.2)"  # Light red
-                text_color = "rgb(234, 67, 53)"
-            else:
-                extraction_status = "Ideal range"
-                box_color = "rgba(52, 168, 83, 0.2)"  # Light green
-                text_color = "rgb(52, 168, 83)"
-
-            # Custom HTML/CSS for the colored result
-            st.markdown(
-                f"""
-                <div style="display: flex; align-items: center; margin-top: 0.5rem;">
-                    <div style="
-                        background-color: {box_color}; 
-                        color: {text_color}; 
-                        font-weight: bold; 
-                        padding: 0.5rem 1rem; 
-                        border-radius: 0.3rem;
-                        font-size: 1.2rem;
-                    ">
-                        {extraction_yield:.2f}% - {extraction_status}
-                    </div>
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; margin-top: 0.5rem;">
+                <div style="background-color: {box_color}; color: {text_color}; font-weight: bold; padding: 0.5rem 1rem; border-radius: 0.3rem; font-size: 1.2rem;">
+                    {extraction_yield:.2f}% - {extraction_status}
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            # Add the extraction chart visualization
-            add_extraction_chart(tds_percent, extraction_yield)
+        add_extraction_chart(tds_percent, extraction_yield)
 
-            # Display formula explanation
-            with st.expander("View calculation details"):
-                st.markdown(
-                    """
-                ### Coffee Extraction Formulas:
-                - **Water Retention** = Wet Weight - Dry Weight
-                - **Coffee Water** = Total Water - Water Retention
-                - **Dissolved Solids** = |Coffee Water - Beverage Weight|
-                - **TDS%** = (Dissolved Solids / Coffee Water) × 100
-                - **Extraction Yield%** = (TDS% × Beverage Weight) / (Coffee Dose - (0.035 × Coffee Dose))
-                - **Brew Ratio** = Total Water / Coffee Dose
-                
-                ### Interpretation:
-                - **Under-extracted** (<17%): Coffee may taste sour, weak, or lacking sweetness
-                - **Ideal range** (17-22%): Balanced extraction with optimal flavor
-                - **Over-extracted** (>22%): Coffee may taste bitter, harsh, or astringent
-                """
+        if st.button("Save Brew to Log"):
+            if selected_coffee_id:
+                brew_log_df = load_data(gc, "Brew Log")
+                new_brew = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "coffee_id": selected_coffee_id,
+                    "coffee_name": selected_coffee,
+                    "dose": coffee_dose,
+                    "total_water": total_water,
+                    "brew_time": brew_time,
+                    "grind_size": grind_size,
+                    "tds_percent": tds_percent,
+                    "extraction_yield": extraction_yield,
+                    "water_recipe": water_recipe,
+                    "notes": notes,
+                }
+
+                brew_log_df = pd.concat(
+                    [brew_log_df, pd.DataFrame([new_brew])], ignore_index=True
+                )
+                success, remaining, updated_beans_df = update_coffee_inventory(
+                    beans_df, selected_coffee_id, coffee_dose
                 )
 
-            # Save this brew to the log - single save button that updates both datasets at once
-            if st.button("Save Brew to Log"):
-                if selected_coffee_id:
-                    # Prepare data for bulk save
-                    brew_log_df = load_data(gc, "Brew Log")
-                    new_brew = {
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "coffee_id": selected_coffee_id,
-                        "coffee_name": selected_coffee,
-                        "dose": coffee_dose,
-                        "total_water": total_water,
-                        "brew_time": brew_time,
-                        "grind_size": grind_size,
-                        "tds_percent": tds_percent,
-                        "extraction_yield": extraction_yield,
-                        "notes": notes,
-                    }
-
-                    # Add the new brew as a new row
-                    brew_log_df = pd.concat(
-                        [brew_log_df, pd.DataFrame([new_brew])], ignore_index=True
-                    )
-
-                    # Update coffee inventory
-                    success, remaining, updated_beans_df = update_coffee_inventory(
-                        beans_df, selected_coffee_id, coffee_dose
-                    )
-
-                    if success:
-                        # Save both datasets at once
-                        if save_data(
-                            gc,
-                            {
-                                "Brew Log": brew_log_df,
-                                "Beans Inventory": updated_beans_df,
-                            },
-                        ):
-                            st.success(
-                                f"Brew saved! Updated {selected_coffee} inventory: {remaining:.1f}g remaining"
-                            )
-                            # Reset the timer after saving
-                            st.session_state.elapsed_time = 0
-                            st.session_state.running = False
-                            # Force refresh data on next load
-                            st.session_state["force_refresh"] = True
-                            st.rerun()
-                        else:
-                            st.error("Failed to save data")
+                if success:
+                    if save_data(
+                        gc,
+                        {"Brew Log": brew_log_df, "Beans Inventory": updated_beans_df},
+                    ):
+                        st.success(
+                            f"Brew saved! Updated {selected_coffee} inventory: {remaining:.1f}g remaining"
+                        )
+                        st.rerun()
                     else:
-                        st.error("Failed to update coffee inventory")
+                        st.error("Failed to save data")
                 else:
-                    st.error("Please select a coffee")
+                    st.error("Failed to update coffee inventory")
+            else:
+                st.error("Please select a coffee")
     else:
         st.info("Fill in all required fields to calculate extraction yield")
 
