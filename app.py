@@ -510,6 +510,8 @@ def extraction_calculator_page(gc):
         if selected_brewer:
             brewer = selected_brewer
 
+    # Show brewing suggestions
+    add_brewing_suggestions_to_extraction_calculator(gc)
     col1, col2 = st.columns(2)
     with col1:
         coffee_dose = st.number_input(
