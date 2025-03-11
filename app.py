@@ -483,6 +483,21 @@ def extraction_calculator_page(gc):
             selected_coffee_id = beans_df[beans_df["name"] == coffee_name]["id"].values[
                 0
             ]
+             # Check if coffee is low on supply
+            remaining = float(
+                beans_df[beans_df["name"] == coffee_name]["grams_remaining"].values[0]
+            )
+            if remaining < 50:
+                st.warning(
+                    f"⚠️ Low coffee supply: Only {remaining:.1f}g remaining of {coffee_name}"
+                )
+
+            # Display brewing suggestions after coffee selection
+            add_brewing_suggestions_to_extraction_calculator(gc)
+    else:
+        st.info(
+            "No coffee beans in inventory. Please add some in the Beans Inventory page."
+        )
 
     water_recipe = None
     if (
@@ -510,8 +525,7 @@ def extraction_calculator_page(gc):
         if selected_brewer:
             brewer = selected_brewer
 
-    # Show brewing suggestions
-    add_brewing_suggestions_to_extraction_calculator(gc)
+
     col1, col2 = st.columns(2)
     with col1:
         coffee_dose = st.number_input(
