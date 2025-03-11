@@ -449,11 +449,6 @@ def main():
         brew_log_page(gc)
 
 
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-
 def extraction_calculator_page(gc):
     st.title("Coffee Extraction Calculator")
     st.markdown(
@@ -507,6 +502,13 @@ def extraction_calculator_page(gc):
         )
         if selected_water_recipe:
             water_recipe = selected_water_recipe
+
+    brewer = None
+    if not brewers_df.empty and "name" in brewers_df.columns:
+        brewer_options = [""] + brewers_df["name"].tolist()
+        selected_brewer = st.selectbox("Select Brewer", brewer_options)
+        if selected_brewer:
+            brewer = selected_brewer
 
     col1, col2 = st.columns(2)
     with col1:
@@ -589,6 +591,7 @@ def extraction_calculator_page(gc):
                     "grind_size": grind_size,
                     "tds_percent": tds_percent,
                     "extraction_yield": extraction_yield,
+                    "brewer": brewer,
                     "notes": notes,
                 }
 
