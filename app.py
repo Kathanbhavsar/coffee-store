@@ -483,7 +483,11 @@ def extraction_calculator_page(gc):
             selected_coffee_id = beans_df[beans_df["name"] == coffee_name]["id"].values[
                 0
             ]
-             # Check if coffee is low on supply
+            
+            # Store the selected coffee in session state
+            st.session_state["selected_coffee_option"] = selected_coffee_option
+
+            # Check if coffee is low on supply
             remaining = float(
                 beans_df[beans_df["name"] == coffee_name]["grams_remaining"].values[0]
             )
